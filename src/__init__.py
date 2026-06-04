@@ -1,4 +1,4 @@
-﻿"""Finance Docs Insights package."""
+"""Finance Docs Insights package."""
 
 __all__ = [
     "agents",

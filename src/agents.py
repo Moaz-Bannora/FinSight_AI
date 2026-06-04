@@ -1,4 +1,4 @@
-﻿"""Multi-agent orchestration for Finance Docs Insights."""
+"""Multi-agent orchestration for Finance Docs Insights."""
 
 from __future__ import annotations
 

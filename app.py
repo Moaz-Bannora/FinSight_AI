@@ -1,4 +1,4 @@
-﻿"""Streamlit UI for Finance Docs Insights."""
+"""Streamlit UI for Finance Docs Insights."""
 
 from __future__ import annotations
 

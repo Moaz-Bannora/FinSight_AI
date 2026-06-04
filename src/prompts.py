@@ -1,4 +1,4 @@
-﻿"""Prompt templates for Finance Docs Insights."""
+"""Prompt templates for Finance Docs Insights."""
 
 SYSTEM_PROMPT = """You are Finance Docs Insights, a local finance document analyzer and study guide.
 

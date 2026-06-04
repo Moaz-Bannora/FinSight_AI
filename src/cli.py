@@ -1,4 +1,4 @@
-﻿"""Command line interface for Finance Docs Insights."""
+"""Command line interface for Finance Docs Insights."""
 
 from __future__ import annotations
 

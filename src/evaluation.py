@@ -1,4 +1,4 @@
-﻿"""Simple evaluation comparing baseline vs full assistant."""
+"""Simple evaluation comparing baseline vs full assistant."""
 
 from __future__ import annotations
 

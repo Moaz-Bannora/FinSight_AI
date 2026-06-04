@@ -1,4 +1,4 @@
-﻿# Finance Docs Insights Final Report
+# Finance Docs Insights Final Report
 
 ## 1. Project Scenario
 

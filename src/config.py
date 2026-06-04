@@ -1,4 +1,4 @@
-﻿"""Project configuration for Finance Docs Insights."""
+"""Project configuration for Finance Docs Insights."""
 
 from __future__ import annotations
 

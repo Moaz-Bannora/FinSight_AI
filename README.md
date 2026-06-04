@@ -1,4 +1,4 @@
-﻿# Finance Docs Insights: Local Finance Document LLM
+# Finance Docs Insights: Local Finance Document LLM
 
 Finance Docs Insights is a local finance document assistant built for the GenAI course project. It combines prompt design, Retrieval-Augmented Generation (RAG), deterministic finance tools, a two-agent Researcher/Checker workflow, evaluation, safety rules, and an optional PEFT/LoRA demo.
 
