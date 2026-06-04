@@ -1,0 +1,8 @@
+[server]
+maxUploadSize = 512
+enableXsrfProtection = true
+fileWatcherType = "none"
+websocketPingInterval = 30
+
+[browser]
+gatherUsageStats = false
