@@ -16,11 +16,13 @@ from src.config import (
     DEFAULT_EMBED_MODEL,
     EXTERNAL_DOCS_DIR,
     SAMPLE_DOCS_DIR,
+    SUPPORTED_EXTENSIONS,
     UPLOADS_DIR,
     ensure_project_dirs,
+    gemini_env_status,
 )
-from src.llm import LocalLLM
-from src.model_profiles import get_profile
+from src.llm import LANGCHAIN_GOOGLE_GENAI_AVAILABLE, LocalLLM
+from src.model_profiles import MODEL_PROFILES, get_profile
 from src.rag import FinanceRAG
 
 
@@ -30,13 +32,8 @@ ensure_project_dirs()
 APP_NAME = "Finance Docs Insights"
 MAX_UPLOAD_MB = 512
 UPLOAD_TYPES = ["pdf", "docx", "txt", "md", "csv", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
-VISIBLE_PROFILE_LABELS = [
-    "Ollama fast",
-    "Ollama finance balanced",
-    "Ollama long-context",
-    "Gemini API",
-]
-DEFAULT_PROFILE_LABEL = "Ollama fast"
+VISIBLE_PROFILE_LABELS = list(MODEL_PROFILES)
+DEFAULT_PROFILE_LABEL = "Local fast - Ollama Llama 3.2 3B"
 
 
 def safe_filename(filename: str) -> str:
@@ -63,6 +60,24 @@ def save_uploaded_files(uploaded_files) -> list[Path]:
     return saved_paths
 
 
+def list_supported_files(directory: Path) -> list[Path]:
+    """Return supported files in a stable order for repeatable batch indexing."""
+
+    return sorted(
+        [path for path in directory.rglob("*") if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS],
+        key=lambda path: str(path).lower(),
+    )
+
+
+def filter_files(paths: list[Path], query: str) -> list[Path]:
+    """Filter paths by simple filename/path tokens entered in the sidebar."""
+
+    tokens = [token.strip().lower() for token in query.split() if token.strip()]
+    if not tokens:
+        return paths
+    return [path for path in paths if all(token in str(path).lower() for token in tokens)]
+
+
 def get_assistant(
     model_name: str,
     llm_provider: str,
@@ -70,9 +85,40 @@ def get_assistant(
     embedding_provider: str,
     embedding_model: str,
     temperature: float,
+    prefer_ollama_gpu: bool = False,
+    analyze_images: bool = False,
 ) -> FinanceAssistant:
-    rag = FinanceRAG(embedding_provider=embedding_provider, embedding_model=embedding_model)
-    llm = LocalLLM(model_name=model_name, provider_name=llm_provider, offline_demo=offline_demo, temperature=temperature)
+    rag = FinanceRAG(
+        embedding_provider=embedding_provider,
+        embedding_model=embedding_model,
+        analyze_images=analyze_images,
+    )
+    if llm_provider == "hybrid_local_gemini_checker":
+        llm = LocalLLM(
+            model_name=model_name,
+            provider_name="ollama",
+            offline_demo=offline_demo,
+            temperature=temperature,
+            prefer_ollama_gpu=prefer_ollama_gpu,
+        )
+        checker_llm = LocalLLM(
+            model_name="gemini-3.1-flash-lite",
+            provider_name="gemini",
+            offline_demo=offline_demo,
+            temperature=temperature,
+            fallback_model_name=model_name,
+            prefer_ollama_gpu=prefer_ollama_gpu,
+        )
+        return FinanceAssistant(rag=rag, llm=llm, checker_llm=checker_llm)
+
+    llm = LocalLLM(
+        model_name=model_name,
+        provider_name=llm_provider,
+        offline_demo=offline_demo,
+        temperature=temperature,
+        fallback_model_name=DEFAULT_CHAT_MODEL,
+        prefer_ollama_gpu=prefer_ollama_gpu,
+    )
     return FinanceAssistant(rag=rag, llm=llm)
 
 
@@ -243,13 +289,26 @@ if "assistant" not in st.session_state:
 if "ingested_files" not in st.session_state:
     st.session_state.ingested_files = []
 
+if "external_docs_cursor" not in st.session_state:
+    st.session_state.external_docs_cursor = 0
+
+if "external_docs_last_filter" not in st.session_state:
+    st.session_state.external_docs_last_filter = ""
+
+if "image_analysis_enabled" not in st.session_state:
+    st.session_state.image_analysis_enabled = False
+
+if "prefer_ollama_gpu_enabled" not in st.session_state:
+    st.session_state.prefer_ollama_gpu_enabled = False
+
 
 with st.sidebar:
     st.title(APP_NAME)
+    st.caption("Local RAG, finance tools, optional Gemini checking.")
 
-    with st.expander("Answer setup", expanded=True):
+    with st.expander("1. Workflow", expanded=True):
         mode = st.selectbox(
-            "Mode",
+            "Answer mode",
             [
                 "Company Health Analysis",
                 "Finance Study Assistant",
@@ -269,24 +328,83 @@ with st.sidebar:
                 "Higher values give more context but can add noise and make answers slower."
             ),
         )
-        use_rag = st.toggle("Use RAG", value=True)
-        use_tools = st.toggle("Use finance tools", value=True)
-        use_checker = st.toggle("Use Checker agent", value=True)
+        use_rag = st.toggle(
+            "Retrieve document evidence",
+            value=True,
+            help="Search indexed files and pass the most relevant chunks to the model.",
+        )
+        use_tools = st.toggle(
+            "Use finance calculators",
+            value=True,
+            help="Run deterministic ratio and NPV tools when numbers are present.",
+        )
+        use_checker = st.toggle(
+            "Run Checker agent",
+            value=True,
+            help="Review the draft answer for unsupported claims, arithmetic issues, and safety wording.",
+        )
 
-    with st.expander("Documents", expanded=True):
-        if st.button("Load sample finance docs", use_container_width=True):
+    with st.expander("2. Documents and indexing", expanded=True):
+        if st.button("Index sample finance docs", use_container_width=True):
             with st.spinner("Indexing sample documents..."):
                 count = st.session_state.assistant.rag.ingest_directory(SAMPLE_DOCS_DIR, reset=True)
             st.session_state.ingested_files = ["sample_docs"]
             st.success(f"Loaded {count} chunks.")
 
-        exported_docs = [path for path in EXTERNAL_DOCS_DIR.rglob("*") if path.is_file()]
-        if exported_docs and st.button("Load exported financial docs", use_container_width=True):
-            with st.spinner("Indexing exported SEC-style financial documents..."):
-                count = st.session_state.assistant.rag.ingest_directory(EXTERNAL_DOCS_DIR, reset=True)
-            st.session_state.ingested_files = [f"external_financial_docs ({len(exported_docs)} files)"]
-            st.success(f"Loaded {count} chunks.")
-        elif not exported_docs:
+        exported_docs = list_supported_files(EXTERNAL_DOCS_DIR)
+        if exported_docs:
+            st.markdown("**Exported financial docs**")
+            external_filter = st.text_input(
+                "Filter exported docs",
+                value=st.session_state.external_docs_last_filter,
+                placeholder="amazon 2024 10-q, apple, risk, table...",
+                help="Optional. Matches words in exported filenames and folders before indexing.",
+            )
+            if external_filter != st.session_state.external_docs_last_filter:
+                st.session_state.external_docs_last_filter = external_filter
+                st.session_state.external_docs_cursor = 0
+
+            filtered_docs = filter_files(exported_docs, external_filter)
+            batch_size = st.selectbox(
+                "External docs batch size",
+                [25, 50, 100, 250, 500],
+                index=1,
+                help="Smaller batches are easier to cancel and safer for laptops. More files take longer to embed.",
+            )
+            reset_before_external = st.checkbox(
+                "Reset vector store before first external batch",
+                value=True,
+                help="Keep enabled when you want the exported financial docs to replace previously indexed docs.",
+            )
+
+            if st.session_state.external_docs_cursor > len(filtered_docs):
+                st.session_state.external_docs_cursor = 0
+
+            start = st.session_state.external_docs_cursor
+            end = min(start + batch_size, len(filtered_docs))
+            next_batch = filtered_docs[start:end]
+            st.caption(
+                f"{len(filtered_docs)} matching files out of {len(exported_docs)} exported files. "
+                f"Next batch: {start + 1 if next_batch else 0}-{end}."
+            )
+
+            col_index, col_reset = st.columns(2)
+            with col_index:
+                if st.button("Index next batch", use_container_width=True, disabled=not next_batch):
+                    if start == 0 and reset_before_external:
+                        st.session_state.assistant.rag.reset()
+                    with st.spinner(f"Indexing {len(next_batch)} exported file(s)..."):
+                        count = st.session_state.assistant.rag.ingest_files(next_batch)
+                    st.session_state.external_docs_cursor = end
+                    st.session_state.ingested_files = [
+                        f"external_financial_docs batch {start + 1}-{end} of {len(filtered_docs)}"
+                    ]
+                    st.success(f"Indexed {count} chunks from {len(next_batch)} file(s).")
+            with col_reset:
+                if st.button("Reset external progress", use_container_width=True):
+                    st.session_state.external_docs_cursor = 0
+                    st.success("External indexing progress reset.")
+        else:
             st.caption("No exported financial docs found yet.")
 
         uploaded_files = st.file_uploader(
@@ -297,6 +415,7 @@ with st.sidebar:
 
         if uploaded_files and st.button("Ingest uploads", use_container_width=True):
             try:
+                st.session_state.assistant.rag.analyze_images = bool(st.session_state.image_analysis_enabled)
                 with st.spinner("Saving uploaded files..."):
                     saved_paths = save_uploaded_files(uploaded_files)
                 with st.spinner("Extracting, sectioning, and indexing..."):
@@ -322,14 +441,25 @@ with st.sidebar:
             st.session_state.ingested_files = []
             st.success("Cleared documents and chat.")
 
-    with st.expander("Model settings", expanded=False):
+    with st.expander("3. Model profile", expanded=True):
         profile_label = st.selectbox(
-            "Profile",
+            "Runtime profile",
             VISIBLE_PROFILE_LABELS,
             index=VISIBLE_PROFILE_LABELS.index(DEFAULT_PROFILE_LABEL),
         )
         profile = get_profile(profile_label)
         st.caption(profile.description)
+        if profile.llm_provider in {"gemini", "hybrid_local_gemini_checker"}:
+            gemini_status = gemini_env_status()
+            if not LANGCHAIN_GOOGLE_GENAI_AVAILABLE:
+                st.warning("Gemini package missing. Run `python -m pip install -r requirements.txt`.")
+            elif not gemini_status["any_key_set"]:
+                st.warning("Gemini key not found. Put `GOOGLE_API_KEY=...` in a private `.env` file.")
+            else:
+                st.success("Gemini package and local API key are configured.")
+            if gemini_status["both_keys_set"]:
+                st.caption("Both GOOGLE_API_KEY and GEMINI_API_KEY are set. The app uses GOOGLE_API_KEY first.")
+            st.caption("Use `.env` for real keys. `.env.example` is only a safe template for GitHub.")
 
         profile_key = re.sub(r"[^A-Za-z0-9_]+", "_", profile_label.lower())
         model_name = st.text_input(
@@ -361,25 +491,48 @@ with st.sidebar:
             key=f"embedding_model_{profile_key}",
         )
 
-    st.divider()
-    st.caption("Runtime")
-    offline_demo = st.toggle("Offline demo mode", value=False, key=f"offline_demo_{profile_key}")
-
-    if st.button("Apply runtime settings", use_container_width=True):
-        st.session_state.assistant = get_assistant(
-            model_name=model_name,
-            llm_provider=profile.llm_provider,
-            offline_demo=offline_demo,
-            embedding_provider=embedding_provider,
-            embedding_model=embedding_model,
-            temperature=temperature,
+    with st.expander("4. Runtime options and status", expanded=False):
+        offline_demo = st.toggle("Offline demo mode", value=False, key=f"offline_demo_{profile_key}")
+        prefer_ollama_gpu = st.toggle(
+            "Prefer Ollama GPU acceleration",
+            value=False,
+            help=(
+                "Ollama normally auto-detects GPU. This passes a GPU-layer preference to Ollama when supported; "
+                "it does not install GPU drivers."
+            ),
+            key="prefer_ollama_gpu_enabled",
         )
-        st.success(f"Runtime: {st.session_state.assistant.llm.provider}")
+        analyze_images = st.toggle(
+            "Analyze uploaded charts/images with Gemini",
+            value=False,
+            help=(
+                "When a Gemini key is configured, uploaded images get a visual finance/chart summary indexed into RAG. "
+                "Leave off to save Gemini quota."
+            ),
+            key="image_analysis_enabled",
+        )
 
-    st.caption(f"Provider: {st.session_state.assistant.llm.provider}")
-    if getattr(st.session_state.assistant.llm, "status_message", ""):
-        st.caption(st.session_state.assistant.llm.status_message)
-    st.caption(f"RAG store: {'LangChain/Chroma' if st.session_state.assistant.rag.langchain_enabled else 'Fallback'}")
+        if st.button("Apply runtime settings", use_container_width=True):
+            st.session_state.assistant = get_assistant(
+                model_name=model_name,
+                llm_provider=profile.llm_provider,
+                offline_demo=offline_demo,
+                embedding_provider=embedding_provider,
+                embedding_model=embedding_model,
+                temperature=temperature,
+                prefer_ollama_gpu=prefer_ollama_gpu,
+                analyze_images=analyze_images,
+            )
+            st.success(f"Runtime: {st.session_state.assistant.provider_summary()}")
+
+        st.caption(f"Provider: {st.session_state.assistant.provider_summary()}")
+        if getattr(st.session_state.assistant.llm, "status_message", ""):
+            st.caption(st.session_state.assistant.llm.status_message)
+        if getattr(st.session_state.assistant, "checker_llm", None) is not st.session_state.assistant.llm:
+            checker_status = getattr(st.session_state.assistant.checker_llm, "status_message", "")
+            if checker_status:
+                st.caption(f"Checker: {checker_status}")
+        st.caption(f"RAG store: {'LangChain/Chroma' if st.session_state.assistant.rag.langchain_enabled else 'Fallback'}")
 
 
 st.title(APP_NAME)

@@ -140,11 +140,17 @@ class CheckerAgent:
 class FinanceAssistant:
     """High-level assistant combining safety, RAG, tools, and agents."""
 
-    def __init__(self, rag: FinanceRAG | None = None, llm: LocalLLM | None = None) -> None:
+    def __init__(
+        self,
+        rag: FinanceRAG | None = None,
+        llm: LocalLLM | None = None,
+        checker_llm: LocalLLM | None = None,
+    ) -> None:
         self.rag = rag or FinanceRAG()
         self.llm = llm or LocalLLM()
+        self.checker_llm = checker_llm or self.llm
         self.researcher = ResearcherAgent(self.llm)
-        self.checker = CheckerAgent(self.llm)
+        self.checker = CheckerAgent(self.checker_llm)
 
     def answer(
         self,
@@ -157,7 +163,7 @@ class FinanceAssistant:
     ) -> AssistantResponse:
         safety = check_query(question)
         if not safety.allowed:
-            return AssistantResponse(question, mode, safety.message, safety, model_provider=self.llm.provider)
+            return AssistantResponse(question, mode, safety.message, safety, model_provider=self.provider_summary())
 
         sources = self.rag.retrieve(question, top_k=top_k) if use_rag else []
         context = format_context(sources)
@@ -213,12 +219,17 @@ class FinanceAssistant:
             sources=sources,
             tool_results=tool_results,
             trace=trace,
-            model_provider=self.llm.provider,
+            model_provider=self.provider_summary(),
         )
 
     def baseline_answer(self, question: str) -> str:
         result = self.llm.generate(SYSTEM_PROMPT, f"QUESTION:\n{question}\n\nAnswer without retrieval, tools, or checker.")
         return result.text
+
+    def provider_summary(self) -> str:
+        if self.checker_llm is self.llm:
+            return self.llm.provider
+        return f"researcher:{self.llm.provider} | checker:{self.checker_llm.provider}"
 
     @staticmethod
     def _needs_finance_disclaimer(question: str, context: str, mode: str, safety: SafetyDecision) -> bool:

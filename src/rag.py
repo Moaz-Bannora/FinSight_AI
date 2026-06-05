@@ -25,6 +25,7 @@ from .config import (
     SUPPORTED_EXTENSIONS,
     VECTORSTORE_DIR,
 )
+from .vision import analyze_finance_image
 
 
 try:
@@ -101,12 +102,16 @@ class FinanceRAG:
         embedding_provider: str = "hash",
         embedding_model: str = DEFAULT_EMBED_MODEL,
         top_k: int = DEFAULT_TOP_K,
+        analyze_images: bool = False,
+        image_analysis_model: str = "gemini-3.1-flash-lite",
     ) -> None:
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
         self.embedding_provider = embedding_provider
         self.embedding_model = embedding_model
         self.top_k = top_k
+        self.analyze_images = analyze_images
+        self.image_analysis_model = image_analysis_model
         self.vectorstore: Any | None = None
         self.fallback_chunks: list[RetrievedChunk] = []
 
@@ -255,6 +260,7 @@ class FinanceRAG:
             "section": "Image OCR",
         }
         ocr_text = ""
+        vision_text = ""
         status = "metadata_only"
 
         try:
@@ -275,14 +281,30 @@ class FinanceRAG:
         except Exception as exc:
             metadata["image_error"] = str(exc)
 
-        metadata["extraction_method"] = status
+        vision_status = ""
+        if self.analyze_images:
+            vision_text, vision_status = analyze_finance_image(file_path, self.image_analysis_model)
+            metadata["vision_status"] = vision_status
+
+        methods = [status]
+        if vision_status:
+            methods.append(vision_status)
+        metadata["extraction_method"] = "+".join(methods)
+
+        text_parts = [f"Image upload: {file_path.name}"]
         if ocr_text:
-            text = f"Image OCR text from {file_path.name}:\n\n{self._normalize_text(ocr_text)}"
+            text_parts.append(f"Image OCR text:\n\n{self._normalize_text(ocr_text)}")
+        if vision_text:
+            text_parts.append(f"Gemini visual finance/chart summary:\n\n{self._normalize_text(vision_text)}")
+
+        if len(text_parts) > 1:
+            text = "\n\n".join(text_parts)
         else:
             text = (
                 f"Image upload: {file_path.name}\n"
                 f"OCR status: {status}. Install Tesseract OCR and requirements-ocr.txt to extract text from images.\n"
-                "The image can still be tracked as an uploaded file, but its visible content is not searchable yet."
+                "The image can still be tracked as an uploaded file. "
+                "Enable Gemini image analysis in the sidebar to index a visual chart/finance summary."
             )
         return [self._make_document(text, self._enrich_metadata(metadata, text))]
 

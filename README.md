@@ -1,73 +1,108 @@
-# Finance Docs Insights: Local Finance Document LLM
+# Finance Docs Insights
 
-Finance Docs Insights is a local finance document assistant built for the GenAI course project. It combines prompt design, Retrieval-Augmented Generation (RAG), deterministic finance tools, a two-agent Researcher/Checker workflow, evaluation, safety rules, and an optional PEFT/LoRA demo.
+Finance Docs Insights is a local finance document assistant for the GenAI course project. It combines Streamlit, LangChain, Chroma, Ollama, deterministic finance calculators, optional Gemini models, image understanding, and a two-agent Researcher/Checker workflow.
 
-The app is designed for:
+The project is designed for educational finance analysis, not personalized investment advice.
 
-- Company health analysis from uploaded reports.
-- Finance study support for ratios, formulas, and concepts.
-- Research paper explanation for students and postgraduate researchers.
-- Grounded document Q&A with sources shown separately from the main answer.
+## Main Documentation
 
-It is educational software, not a financial advisor.
+Use these three files as the primary project guides:
+
+- `README.md`: setup, run guide, architecture, file purposes, team workflow, and improvement roadmap.
+- `DEEP_RAG_INTEGRATION_GUIDE.md`: how the Multi-Agent Deep RAG reference ideas map into this local project and the optional Qdrant snapshot workflow.
+- `YAHOO_MCP_INTEGRATION_GUIDE.md`: planned Yahoo Finance MCP integration, tool design, safety rules, and how it can improve market-data questions.
+
+Supplemental files:
+
+- `GEMINI_QDRANT_TROUBLESHOOTING.md`: focused fixes for Gemini keys, quota, Qdrant, and image/GPU toggles.
+- `SECURITY.md`: public-repo security and secret handling notes.
+
+## What The App Can Do
+
+- Answer questions from uploaded finance PDFs, DOCX files, text files, markdown files, CSV files, and supported images.
+- Explain finance concepts such as NPV, WACC, Black-Scholes, VaR/CVaR, CAPM, duration, convexity, and working capital.
+- Analyze company health using retrieved evidence plus deterministic ratio tools.
+- Explain research papers and postgraduate finance concepts.
+- Keep sources out of the middle of the answer and show them in separate expanders.
+- Use local Ollama models by default, with optional Gemini cloud profiles.
+- Use Gemini vision to summarize uploaded chart or image files when enabled.
+- Import a downloaded Qdrant financial-docs snapshot into local markdown exports, then index those exports in safer batches.
+
+## Recommended Architecture
+
+The current architecture is intentionally modular:
+
+```text
+Streamlit UI
+  -> FinanceAssistant orchestrator
+     -> Safety rules
+     -> RAG retriever
+        -> loaders, chunking, metadata inference, Chroma store
+     -> Finance tools
+     -> LLM provider
+        -> Ollama, Gemini, hybrid local/cloud, offline fallback
+     -> Checker agent
+```
+
+Crucial architecture improvements that are worth doing next:
+
+1. Provider registry: keep all model providers, model IDs, fallbacks, and availability checks in one registry instead of spreading provider logic across UI and LLM code.
+2. Retrieval pipeline abstraction: make retrieval stages explicit: load, parse, chunk, embed, store, retrieve, rerank, compress, cite. This makes future Qdrant, BM25, cross-encoder reranking, and table-aware retrieval easier.
+3. Incremental indexing: store file hashes and skip unchanged files. This will reduce slow re-indexing for large exported financial-doc batches.
+4. Background ingestion queue: move long upload/indexing tasks out of the main Streamlit run loop, with progress, cancellation, and resumable batches.
+5. Tool router: separate deterministic calculators, document retrieval, image analysis, and future MCP market-data tools behind one controlled routing layer.
+6. Evaluation gates: expand `data/evaluation/test_questions.jsonl` and require retrieval/source, arithmetic, safety, and image checks before each public push.
+7. Observability: keep optional LangSmith tracing, but also add local structured logs for retrieval scores, selected chunks, model provider, tokens, latency, and tool calls.
+8. Security boundary for external tools: any MCP or live market-data tool should be read-only, rate-limited, logged, and clearly labeled as external data.
+9. Better table/form extraction: add table-aware PDF parsing for statements and finance forms instead of relying only on flattened PDF text.
+10. Stronger answer contracts: use typed response sections internally, then render clean Markdown/LaTeX in the UI.
 
 ## Project Structure
 
 ```text
 Finance_Doc_LLM/
-  app.py                         Streamlit app
+  app.py                         Streamlit app and sidebar workflow
+  README.md                      Main setup, architecture, and team handoff
+  DEEP_RAG_INTEGRATION_GUIDE.md  Deep RAG reference and Qdrant bridge guide
+  YAHOO_MCP_INTEGRATION_GUIDE.md Yahoo Finance MCP integration plan
+  GEMINI_QDRANT_TROUBLESHOOTING.md
+  SECURITY.md
   src/
     agents.py                    Researcher/Checker workflow and assistant orchestration
     cli.py                       Command-line interface
-    config.py                    Paths and runtime settings
+    config.py                    Paths and environment settings
     evaluation.py                Baseline vs full-system evaluation
-    llm.py                       LangChain Ollama client plus offline fallback
+    financial_metadata.py        Company, filing, period, content, and page metadata helpers
+    llm.py                       Ollama, Gemini, hybrid fallback, and offline responder
+    model_profiles.py            Sidebar model profiles and backward-compatible aliases
     prompts.py                   System, mode, Researcher, and Checker prompts
-    rag.py                       LangChain document loading, chunking, Chroma retrieval
-    safety.py                    Finance safety and refusal rules
-    tools.py                     Deterministic financial calculators
+    rag.py                       Loading, chunking, Chroma indexing, retrieval, image ingestion
+    safety.py                    Refusal and finance-safety rules
+    tools.py                     Deterministic finance calculators
+    vision.py                    Optional Gemini image/chart summaries
+  scripts/
+    setup_windows.bat            Creates `.venv` and installs dependencies
+    run_app.bat                  Starts Streamlit on Windows
+    run_app.ps1                  PowerShell Streamlit launcher
+    setup_ollama.ps1             Pulls local Ollama models
+    smoke_test.py                End-to-end smoke test
+    check_gemini.py              Non-secret Gemini setup checker
+    qdrant_snapshot_bridge.py    Optional Qdrant snapshot inspect/restore/export
+    run_qdrant.bat/.ps1          Optional Docker Qdrant launcher
+    verify_upload_extraction.py  Upload extraction check helper
   data/
     sample_docs/                 Built-in finance demo corpus
     evaluation/test_questions.jsonl
+  tests/
+    test_financial_metadata.py
   training/
-    finance_lora_dataset.jsonl   Tiny finance instruction dataset
-    run_lora_demo.py             Optional PEFT/LoRA demo
-  scripts/
-    setup_windows.bat           Creates .venv and installs core dependencies
-    smoke_test.py                Verifies ingestion, retrieval, tools, and answer flow
-    setup_ollama.ps1             Pulls local Ollama models
-    run_app.bat                  Starts Streamlit without PowerShell policy issues
-    run_app.ps1                  Starts Streamlit
-    qdrant_snapshot_bridge.py    Optional Qdrant snapshot inspection/restore/export
-    run_qdrant.bat               Optional local Qdrant launcher through Docker
-  outputs/                       Evaluation and smoke-test outputs
+    finance_lora_dataset.jsonl
+    run_lora_demo.py
 ```
-
-## What It Uses
-
-- Local LLM: Ollama with `llama3.2:3b` by default.
-- Embeddings: Ollama `nomic-embed-text` or deterministic hash embeddings for smoke tests.
-- Framework: LangChain.
-- Vector database: Chroma through `langchain-chroma`.
-- UI: Streamlit.
-- Document formats: PDF, DOCX, TXT, Markdown, CSV.
-- Image formats: PNG, JPG, JPEG, WEBP, BMP, TIF, TIFF with optional OCR.
-- Finance tools: current ratio, debt-to-equity, gross margin, net profit margin, ROE, ROI, and NPV.
-- Sample finance corpus: ratios, NPV, IRR, payback, WACC, valuation, cash flow, working capital, company health, advanced asset pricing, derivatives, risk management, fixed income, credit risk, and research-paper notes.
-
-The implementation follows current LangChain patterns for RAG, document loaders, recursive splitting, Chroma, and Ollama integrations:
-
-- [LangChain RAG guide](https://docs.langchain.com/oss/python/langchain/rag)
-- [PyPDFLoader guide](https://docs.langchain.com/oss/python/integrations/document_loaders/pypdfloader/)
-- [RecursiveCharacterTextSplitter guide](https://docs.langchain.com/oss/python/integrations/splitters/recursive_text_splitter)
-- [ChatOllama reference](https://api.python.langchain.com/en/latest/ollama/chat_models/langchain_ollama.chat_models.ChatOllama.html)
-- [Chroma vector store reference](https://api.python.langchain.com/en/latest/chroma/vectorstores/langchain_chroma.vectorstores.Chroma.html)
 
 ## Setup
 
-Use Python 3.10 or newer.
-
-Fast Windows setup:
+Use Python 3.10 or newer. On Windows, from the project folder:
 
 ```powershell
 .\scripts\setup_windows.bat
@@ -76,71 +111,163 @@ Fast Windows setup:
 Manual setup:
 
 ```powershell
-cd "C:\Users\Moaz Khalid\Downloads\Nile University\GenAI\Project\Finance_Doc_LLM"
 py -3.12 -m venv .venv
 .\.venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
 python -m pip install -r requirements.txt
 ```
 
-Install Ollama from https://ollama.com, then pull local models:
+Install Ollama from `https://ollama.com`, then pull the default local models:
 
 ```powershell
 ollama pull llama3.2:3b
 ollama pull nomic-embed-text
 ```
 
-## Verify It Works
-
-Run the dependency-free local smoke test first:
-
-```powershell
-python scripts\smoke_test.py --offline-demo
-```
-
-That test verifies:
-
-- Sample document ingestion.
-- Retrieval over the sample corpus.
-- Current ratio tool execution.
-- Researcher/Checker answer flow.
-- JSON output written to `outputs/smoke_test_result.json`.
-
-After installing dependencies and Ollama, run the same test without offline mode:
-
-```powershell
-python scripts\smoke_test.py
-```
-
-## Run the App
+## Run The App
 
 ```powershell
 .\scripts\run_app.bat
 ```
 
-If you prefer the direct command:
+Direct command:
 
 ```powershell
 .\.venv\Scripts\python.exe -m streamlit run app.py --server.headless true --server.port 8501
 ```
 
-If you want to use the PowerShell launcher instead, run it with execution-policy bypass:
+Open:
 
-```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\run_app.ps1
+```text
+http://localhost:8501
 ```
 
-In the sidebar:
+Recommended first demo:
 
-1. Choose a mode.
-2. Click `Load sample finance docs` or upload your own documents/images.
-3. If `data/external_financial_docs` contains exported filing chunks, click `Load exported financial docs`.
-4. Choose the RAG, tools, and Checker pipeline options.
-5. Choose a model profile.
-6. Leave `Offline demo mode` off when Ollama is running, or turn it on only for deterministic fallback testing.
-7. Ask a finance question.
+1. Click `Index sample finance docs`.
+2. Keep `Retrieve document evidence`, `Use finance calculators`, and `Run Checker agent` enabled.
+3. Use `Local fast - Ollama Llama 3.2 3B` first.
+4. Ask: `Explain Black-Scholes and show the formula.`
 
-Example questions:
+## Model Profiles
+
+The sidebar model profiles are:
+
+- `Local fast - Ollama Llama 3.2 3B`: fast local default for demos and short document questions.
+- `Local balanced - Ollama Qwen 2.5 7B`: better local reasoning if the machine can run a 7B model.
+- `Local long context - Ollama Llama 3.1 8B`: useful for longer reports when hardware allows it.
+- `Cloud reasoning - Gemini 3.5 Flash`: optional stronger Gemini profile.
+- `Cloud efficient - Gemini 3.1 Flash-Lite`: lower-latency, quota-friendlier Gemini profile.
+- `Hybrid quality check - Ollama draft + Gemini`: local Ollama drafts, Gemini Flash-Lite checks when available.
+
+Gemini free-tier limits are per project and model-specific. If quota is hit, use Flash-Lite, reduce evidence chunks, disable the Checker agent, or use the hybrid profile.
+
+Low GPU utilization does not always mean the app is ignoring the GPU. PDF parsing, OCR, Chroma indexing, Streamlit, Python orchestration, and some embedding work are CPU-heavy. Local model generation is the stage most likely to benefit from Ollama GPU offload.
+
+## Optional Gemini And LangSmith
+
+Install optional dependencies:
+
+```powershell
+.\.venv\Scripts\python.exe -m pip install -r requirements-gemini-langsmith.txt
+```
+
+Create a private `.env` file:
+
+```env
+FIN_DOC_LLM_PROVIDER=gemini
+FIN_DOC_LLM_CHAT_MODEL=gemini-3.5-flash
+GOOGLE_API_KEY=your_google_ai_studio_key_here
+```
+
+The key from Google AI Studio is the Gemini API key. This project accepts either `GOOGLE_API_KEY` or `GEMINI_API_KEY`; use only one, preferably `GOOGLE_API_KEY`.
+
+Check setup without printing secrets:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_gemini.py
+```
+
+Make a tiny live call:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\check_gemini.py --call
+```
+
+Optional LangSmith tracing:
+
+```env
+LANGSMITH_TRACING=true
+LANGSMITH_API_KEY=your_langsmith_api_key_here
+LANGSMITH_PROJECT=Finance Docs Insights
+```
+
+## Optional Qdrant Snapshot
+
+The downloaded `financial_docs-...snapshot` file is a Qdrant collection snapshot, not raw PDFs. The app does not require it.
+
+Inspect:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\qdrant_snapshot_bridge.py inspect
+```
+
+If Docker Desktop is running, start Qdrant:
+
+```powershell
+.\scripts\run_qdrant.bat
+```
+
+Restore and export a manageable demo subset:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\qdrant_snapshot_bridge.py restore --qdrant-url http://localhost:6333 --collection financial_docs
+.\.venv\Scripts\python.exe scripts\qdrant_snapshot_bridge.py export --qdrant-url http://localhost:6333 --collection financial_docs --max-points 500
+```
+
+The exported markdown files go to `data/external_financial_docs`, which is ignored by Git. In the app, filter exported docs and index them in small batches.
+
+## Optional Image OCR And Gemini Vision
+
+Image uploads are supported. There are two different image paths:
+
+- OCR: extracts visible text from images if Tesseract is installed.
+- Gemini vision: creates a concise visual summary for uploaded charts/images when the sidebar toggle is enabled and a Gemini key is configured.
+
+Install OCR Python dependencies:
+
+```powershell
+python -m pip install -r requirements-ocr.txt
+```
+
+Tesseract itself must also be installed on Windows and available on PATH.
+
+## CLI And Verification
+
+CLI examples:
+
+```powershell
+.\.venv\Scripts\python.exe -m src.cli --offline-demo ingest-samples --reset
+.\.venv\Scripts\python.exe -m src.cli --offline-demo ask "Calculate debt-to-equity if debt is 1350 and equity is 1500." --mode "Finance Study Assistant"
+.\.venv\Scripts\python.exe -m src.cli --offline-demo evaluate
+```
+
+Before pushing changes:
+
+```powershell
+git status --short
+.\.venv\Scripts\python.exe -m compileall app.py src scripts tests
+.\.venv\Scripts\python.exe tests\test_financial_metadata.py
+.\.venv\Scripts\python.exe -m src.cli --offline-demo evaluate
+```
+
+Optional smoke test:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\smoke_test.py --offline-demo
+```
+
+## Example Questions
 
 ```text
 What are the main factors affecting Nile Retail Holdings financial health?
@@ -155,154 +282,33 @@ Explain the research objective, methodology, and main findings of the working ca
 What risks are mentioned in the uploaded annual report excerpt?
 ```
 
-## CLI Examples
+## Team Handoff
 
-```powershell
-python -m src.cli --offline-demo ingest-samples --reset
-python -m src.cli --offline-demo ask "Calculate debt-to-equity if debt is 1350 and equity is 1500." --mode "Finance Study Assistant"
-python -m src.cli --offline-demo evaluate
-```
+The main app works without Qdrant, Docker, Gemini, LangSmith, or fine-tuning. Those are optional extensions.
 
-## Using the Downloaded Financial Docs Snapshot
+Commit source, docs, tests, sample docs, and requirements.
 
-The file `financial_docs-6842273198355691-2025-12-30-17-57-38.snapshot` is a Qdrant collection snapshot, not a folder of PDFs. The project includes a bridge script so it can still become useful for this local Chroma/Ollama app.
+Do not commit:
 
-This snapshot is optional. You do not need Qdrant or Docker to run Streamlit, load sample finance docs, upload PDFs/images, ask questions, run the smoke test, or present the main course project. Qdrant is only needed if you want to import the downloaded external financial-docs dataset.
+- `.env`
+- `.venv`
+- `outputs`
+- `data/chroma_db`
+- `data/uploads`
+- `data/external_financial_docs`
+- Qdrant `.snapshot` files
+- private PDFs or customer documents
+- model adapter weights
 
-Inspect the snapshot:
+When adding features:
 
-```powershell
-python scripts\qdrant_snapshot_bridge.py inspect
-```
-
-Restore it into a running Qdrant server:
-
-```powershell
-python scripts\qdrant_snapshot_bridge.py restore --qdrant-url http://localhost:6333 --collection financial_docs
-```
-
-Export restored point payloads to markdown files that this app can ingest:
-
-```powershell
-python scripts\qdrant_snapshot_bridge.py export --qdrant-url http://localhost:6333 --collection financial_docs
-```
-
-Or do both steps after Qdrant is running:
-
-```powershell
-python scripts\qdrant_snapshot_bridge.py restore-export --qdrant-url http://localhost:6333 --collection financial_docs
-```
-
-The exported files are written to `data/external_financial_docs`. After export, open the app and click `Load exported financial docs` in the sidebar.
-
-Inspired by the Multi-Agent Deep RAG repo, this project now also extracts SEC-style metadata such as company, filing type, fiscal year, fiscal quarter, content type, and page hints. Retrieval uses those filters as reranking signals, so questions like `Amazon Q3 2024 revenue` should prefer Amazon 10-Q 2024 Q3 chunks when that metadata exists.
-
-If Qdrant is not running, restore/export will show a clear message instead of a long traceback. To start Qdrant with Docker:
-
-```powershell
-.\scripts\run_qdrant.bat
-```
-
-If Docker Desktop is installed but closed, the script will ask you to start Docker Desktop. If Docker is not available on a teammate's laptop, skip this section and use the built-in sample docs or normal uploads.
-
-Then run:
-
-```powershell
-.\.venv\Scripts\python.exe scripts\qdrant_snapshot_bridge.py restore-export --qdrant-url http://localhost:6333 --collection financial_docs
-```
-
-## Optional Gemini API and LangSmith
-
-The project works locally with Ollama/offline mode by default. Gemini and LangSmith are optional.
-
-Install optional dependencies:
-
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-gemini-langsmith.txt
-```
-
-Add a `.env` file in the project root:
-
-```env
-FIN_DOC_LLM_PROVIDER=gemini
-FIN_DOC_LLM_CHAT_MODEL=gemini-2.5-flash
-GOOGLE_API_KEY=your_google_api_key_here
-```
-
-Then choose `Gemini API` in the app's model profile selector.
-
-For LangSmith tracing, add:
-
-```env
-LANGSMITH_TRACING=true
-LANGSMITH_API_KEY=your_langsmith_api_key_here
-LANGSMITH_PROJECT=Finance Docs Insights
-```
-
-Some LangChain environments still use the older variable names, so `.env.example` also includes `LANGCHAIN_TRACING_V2` and `LANGCHAIN_API_KEY`.
-
-## Optional PEFT/LoRA Demo
-
-The course requires fine-tuning or PEFT. This project includes a small finance instruction dataset and optional LoRA script.
-
-Preview the dataset:
-
-```powershell
-python training\run_lora_demo.py
-```
-
-Install PEFT dependencies and run the tiny LoRA demo:
-
-```powershell
-python -m pip install -r requirements-peft.txt
-python training\run_lora_demo.py --train --base-model sshleifer/tiny-gpt2
-```
-
-For a stronger final presentation, replace `sshleifer/tiny-gpt2` with a small local model that your laptop can run.
-
-## Optional Image OCR
-
-Image uploads are accepted by the app. If OCR is available, the image text is indexed like document text. If OCR is not available, the app stores an image metadata note and tells you OCR is needed before the visible content can be analyzed.
-
-Install the Python OCR wrapper:
-
-```powershell
-python -m pip install -r requirements-ocr.txt
-```
-
-You also need the Tesseract OCR program installed on Windows and available on PATH.
-
-## Model Profiles
-
-The UI includes these local Ollama profiles:
-
-- `Ollama fast`: `llama3.2:3b`.
-- `Ollama finance balanced`: `qwen2.5:7b`.
-- `Ollama long-context`: `llama3.1:8b`.
-- `Gemini API`: optional cloud profile when `langchain-google-genai` and `GOOGLE_API_KEY` are configured.
-
-You can edit the chat model, embedding model, embedding provider, and temperature from the sidebar.
+- Put model/provider changes in `src/model_profiles.py` and `src/llm.py`.
+- Put deterministic calculations in `src/tools.py`.
+- Put retrieval changes in `src/rag.py` and metadata changes in `src/financial_metadata.py`.
+- Put prompt style changes in `src/prompts.py`.
+- Keep the UI in `app.py` thin and focused on workflow controls.
+- Add tests when retrieval, metadata, safety, or calculation behavior changes.
 
 ## Safety
 
-Finance Docs Insights refuses personalized investment advice, guaranteed predictions, illegal finance activity, and misuse of private financial data. It explains concepts and documents for education and analysis only.
-
-## Preparing a Public GitHub Repo
-
-Before publishing, keep generated and private files out of Git. The `.gitignore` excludes `.venv`, `.env`, uploaded documents, Chroma databases, Qdrant storage, exported external docs, model adapters, and `.snapshot` files.
-
-Recommended flow:
-
-```powershell
-git status --short
-python -m compileall app.py src scripts tests
-python tests\test_financial_metadata.py
-python -m src.cli --offline-demo evaluate
-git add .gitignore .streamlit README.md FINAL_REPORT.md DEEP_RAG_INTEGRATION_GUIDE.md TEAM_HANDOFF_GUIDE.md SECURITY.md .github app.py src scripts tests data requirements*.txt training
-git commit -m "Prepare Finance Docs Insights for public collaboration"
-git remote add origin https://github.com/YOUR-ACCOUNT/YOUR-REPO.git
-git push -u origin main
-```
-
-Do not commit `.env`, API keys, private uploads, `.venv`, `outputs`, `data/chroma_db`, `data/uploads`, `data/external_financial_docs`, or the Qdrant `.snapshot` file.
-
+Finance Docs Insights refuses personalized investment advice, guaranteed predictions, illegal finance activity, and misuse of private financial data. It can explain finance concepts, analyze uploaded documents, and show educational calculations with assumptions and limitations.

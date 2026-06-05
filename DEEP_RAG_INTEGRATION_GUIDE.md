@@ -1,72 +1,74 @@
-# Deep RAG Integration Guide
+# Deep RAG Reference Integration Guide
 
-This project was improved using ideas from `laxmimerit/Multi-Agent-Deep-RAG` while keeping the local Streamlit/Ollama/Chroma structure intact.
+This guide explains how Finance Docs Insights uses ideas from `laxmimerit/Multi-Agent-Deep-RAG` while keeping the submitted project local, understandable, and runnable on another machine.
 
-## What Was Adopted
+The reference direction is valuable because financial filings are mixed documents: text, tables, page structure, images, metadata, dates, companies, and numerical facts all matter. A simple "split text and embed" pipeline often retrieves the wrong chunk when the corpus grows.
 
-The reference repo uses a Deep RAG pipeline for SEC filings:
+## Core Ideas From The Reference Direction
 
-1. Extract PDFs into text, tables, and image descriptions.
-2. Store everything as text so all content types are searchable.
-3. Attach metadata such as company, filing type, fiscal year, fiscal quarter, content type, and page.
-4. Use hybrid retrieval with dense vectors, sparse/BM25 signals, metadata filters, and reranking.
-5. Let agents search, reflect, and answer from retrieved evidence.
+The Deep RAG style is useful for finance because it emphasizes:
 
-Our project now adopts the local-friendly parts:
+1. Structure-aware extraction from financial documents.
+2. Storing text, tables, and image descriptions as searchable chunks.
+3. Metadata such as company, filing type, fiscal year, fiscal quarter, content type, and page.
+4. Hybrid retrieval signals, not only dense vector similarity.
+5. Reranking and validation before final answer generation.
+6. Multi-agent workflows where a researcher retrieves and drafts, then a checker verifies.
 
-- Metadata extraction from user queries and file paths.
-- Metadata-aware reranking in the existing Chroma pipeline.
-- A Qdrant snapshot bridge for the downloaded `financial_docs` snapshot.
-- A separate exported-docs folder that can be loaded from the app sidebar.
+## What This Project Adopted
 
-## New Files
+Finance Docs Insights adopted the local-friendly pieces:
 
-### `src/financial_metadata.py`
+- Query and source metadata extraction in `src/financial_metadata.py`.
+- Metadata-aware reranking in `src/rag.py`.
+- Focused sample finance concept files in `data/sample_docs/`.
+- Optional Gemini vision summaries for uploaded images in `src/vision.py`.
+- Researcher/Checker workflow in `src/agents.py`.
+- Qdrant snapshot inspection, restore, and export through `scripts/qdrant_snapshot_bridge.py`.
+- Batch indexing controls in the Streamlit sidebar, so large exported corpora can be loaded gradually.
 
-Extracts SEC-style metadata:
+## What Was Not Copied Directly
 
-- `company_name`: `amazon`, `apple`, `google`, `microsoft`, `tesla`, `nvidia`, `meta`
-- `doc_type`: `10-k`, `10-q`, `8-k`
-- `fiscal_year`: for example `2024`
-- `fiscal_quarter`: `q1`, `q2`, `q3`, `q4`
-- `content_type`: `text`, `table`, `image`, `image_description`
-- `page`: inferred from filenames like `table_47_page_59.md`
+The project intentionally does not require the full reference stack by default.
 
-It also avoids over-filtering comparison questions. For example, a query that mentions both Apple and Amazon will not force retrieval to only one company.
+Not mandatory for the submitted app:
 
-### `scripts/qdrant_snapshot_bridge.py`
+- Qdrant as the primary vector database.
+- Docker.
+- Gemini.
+- Sparse vector search.
+- Cross-encoder reranking.
+- Full table extraction pipeline.
+- A LangGraph graph runtime.
+- A separate backend server.
 
-Works with the downloaded `.snapshot` file.
+Why: the course project must be easy to run locally. Chroma, Ollama, Streamlit, sample docs, uploads, and offline tests already demonstrate the core workflow without extra infrastructure.
 
-Commands:
+## Current Retrieval Flow
 
-```powershell
-python scripts\qdrant_snapshot_bridge.py inspect
-python scripts\qdrant_snapshot_bridge.py status --qdrant-url http://localhost:6333
-python scripts\qdrant_snapshot_bridge.py restore --qdrant-url http://localhost:6333 --collection financial_docs
-python scripts\qdrant_snapshot_bridge.py export --qdrant-url http://localhost:6333 --collection financial_docs
-python scripts\qdrant_snapshot_bridge.py restore-export --qdrant-url http://localhost:6333 --collection financial_docs
+```text
+File upload or sample docs
+  -> loader
+  -> text/table/image-note extraction
+  -> chunking
+  -> metadata inference
+  -> embeddings
+  -> Chroma storage
+  -> query metadata inference
+  -> similarity retrieval
+  -> metadata-aware reranking
+  -> formatted context for the Researcher
 ```
 
-The `inspect` command works without Qdrant. The `status` command checks whether a Qdrant server is reachable. The restore/export commands need a running Qdrant server.
+Important files:
 
-Start Qdrant with Docker:
+- `src/rag.py`: ingestion, chunking, vector storage, retrieval, source formatting.
+- `src/financial_metadata.py`: company, filing, period, content type, and page inference.
+- `src/agents.py`: Researcher/Checker answer flow.
+- `src/vision.py`: optional image/chart summaries.
+- `tests/test_financial_metadata.py`: regression checks for metadata behavior.
 
-```powershell
-.\scripts\run_qdrant.bat
-```
-
-If Qdrant is not running, the bridge script now exits with a short explanation and the exact command to try, instead of printing a long connection traceback. If Docker Desktop is closed, the launcher explains that the external snapshot import is optional and that the main Streamlit app still works without Qdrant.
-
-### `tests/test_financial_metadata.py`
-
-Runnable metadata regression checks:
-
-```powershell
-python tests\test_financial_metadata.py
-```
-
-## Snapshot Meaning
+## Qdrant Snapshot Workflow
 
 The downloaded file:
 
@@ -74,35 +76,98 @@ The downloaded file:
 financial_docs-6842273198355691-2025-12-30-17-57-38.snapshot
 ```
 
-is a Qdrant collection snapshot, not the original raw financial PDFs. It contains vector storage, sparse vector storage, payload storage, WAL files, and collection configuration. The inspected config shows:
+is a Qdrant collection snapshot, not raw PDFs. It should stay out of Git.
 
-- Dense vector size: `3072`
-- Distance metric: `Cosine`
-- Sparse vector field: `langchain-sparse`
-- Payload stored on disk
+Inspect it without Qdrant:
 
-Because the app currently uses Chroma, the snapshot needs to be restored to Qdrant first, then exported into markdown files under:
+```powershell
+.\.venv\Scripts\python.exe scripts\qdrant_snapshot_bridge.py inspect
+```
+
+Start Qdrant with Docker:
+
+```powershell
+.\scripts\run_qdrant.bat
+```
+
+Restore and export:
+
+```powershell
+.\.venv\Scripts\python.exe scripts\qdrant_snapshot_bridge.py restore --qdrant-url http://localhost:6333 --collection financial_docs
+.\.venv\Scripts\python.exe scripts\qdrant_snapshot_bridge.py export --qdrant-url http://localhost:6333 --collection financial_docs --max-points 500
+```
+
+The exported markdown files go to:
 
 ```text
 data/external_financial_docs
 ```
 
-After export, click `Load exported financial docs` in the Streamlit sidebar.
+That folder is ignored by Git. After export, use the app sidebar:
 
-This snapshot workflow is optional. It is useful for importing the downloaded external financial-docs dataset, but it is not required for sample docs, uploaded files, image uploads, normal RAG, Ollama, Gemini, LangSmith, smoke tests, or the course demo.
+1. Filter exported docs by path words, such as `amazon 2024 10-q`.
+2. Choose a batch size such as 25 or 50.
+3. Click `Index next batch`.
+4. Repeat only when more coverage is needed.
 
-## Why This Improves Answers
+Avoid indexing thousands of exported files in one click on a laptop. Every file must be loaded, split, embedded, and written into Chroma.
 
-Before this change, retrieval mostly depended on semantic similarity and lexical overlap. Now queries like:
+## How Metadata Improves Retrieval
+
+Example query:
 
 ```text
 Amazon Q3 2024 revenue
-Apple 2024 annual report margins
-Meta 10-K 2024 risk factors
 ```
 
-can use metadata as reranking evidence. That makes the assistant more likely to retrieve the right company, filing type, fiscal period, content type, and page-level chunk.
+The metadata helper can infer:
 
-## What Was Not Copied Directly
+```text
+company_name = amazon
+fiscal_quarter = q3
+fiscal_year = 2024
+doc_type = 10-q
+```
 
-The reference repo uses Gemini, Qdrant hybrid mode, FastEmbed sparse embeddings, and an optional cross-encoder reranker. This project keeps Ollama and Chroma as the default local stack for course submission simplicity. The bridge script provides a path to use the Qdrant snapshot without making Qdrant mandatory for the app.
+Retrieved chunks matching those fields receive a reranking bonus. Chunks that clearly mismatch can receive a penalty. This keeps retrieval focused without hard-filtering too aggressively.
+
+The metadata logic also avoids over-filtering comparison questions. If the user asks about both Apple and Amazon, the retrieval should not force a single company.
+
+## What To Improve Next
+
+Best next Deep RAG upgrades:
+
+1. Incremental indexing with file hashes so unchanged exports are skipped.
+2. Table-aware extraction for income statements, balance sheets, and cash-flow tables.
+3. Optional BM25 or sparse retrieval in addition to dense embeddings.
+4. Cross-encoder reranking for large corpora.
+5. Context compression to reduce noisy chunks before the LLM sees them.
+6. Query planning for multi-hop questions, such as comparing two companies or two periods.
+7. Structured source objects with page, table, company, filing, and date shown in the UI.
+8. Larger evaluation set based on filings, formulas, tables, forms, and chart images.
+
+## Why We Keep Chroma As Default
+
+Chroma is simple to install and runs locally with the app. Qdrant is stronger for larger corpora and hybrid retrieval, but it adds Docker/server setup. For the submitted project, the best balance is:
+
+- Chroma by default.
+- Qdrant only as an optional import bridge.
+- Deep RAG concepts adopted where they improve retrieval without making setup fragile.
+
+## Demo Guidance
+
+For a reliable class demo:
+
+1. Use sample docs first.
+2. Show that advanced concepts are split into focused files.
+3. Ask a concept question such as `Explain Black-Scholes and delta`.
+4. Upload one PDF or image and ingest it.
+5. If showing the snapshot, export only a small subset and index in batches.
+6. Mention that the full Deep RAG path is an extension, not a requirement for running the app.
+
+## References
+
+- Reference repo: https://github.com/laxmimerit/Multi-Agent-Deep-RAG
+- LangChain RAG guide: https://docs.langchain.com/oss/python/langchain/rag
+- Chroma integration: https://python.langchain.com/docs/integrations/vectorstores/chroma/
+- Qdrant documentation: https://qdrant.tech/documentation/

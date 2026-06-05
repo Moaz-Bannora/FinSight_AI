@@ -9,7 +9,7 @@ import urllib.request
 from dataclasses import dataclass
 from typing import Any
 
-from .config import DEFAULT_CHAT_MODEL, DEFAULT_LLM_PROVIDER, GOOGLE_API_KEY, OLLAMA_BASE_URL, offline_demo_enabled
+from .config import DEFAULT_CHAT_MODEL, DEFAULT_LLM_PROVIDER, OLLAMA_BASE_URL, get_google_api_key, offline_demo_enabled
 
 
 try:
@@ -560,20 +560,28 @@ class LocalLLM:
         base_url: str = OLLAMA_BASE_URL,
         temperature: float = 0.2,
         offline_demo: bool | None = None,
+        fallback_model_name: str = DEFAULT_CHAT_MODEL,
+        fallback_to_ollama: bool = True,
+        prefer_ollama_gpu: bool = False,
     ) -> None:
         self.model_name = model_name
         self.provider_name = provider_name.lower().strip()
         self.base_url = base_url.rstrip("/")
         self.temperature = temperature
         self.offline_demo = offline_demo_enabled() if offline_demo is None else offline_demo
+        self.fallback_model_name = fallback_model_name
+        self.fallback_to_ollama = fallback_to_ollama
+        self.prefer_ollama_gpu = prefer_ollama_gpu
         self.offline = OfflineFinanceResponder()
         self.chat: Any | None = None
+        self.fallback_chat: Any | None = None
         self.status_message = ""
 
         if self.offline_demo:
             self.status_message = "Offline demo mode is enabled."
         elif self.provider_name == "gemini":
             self._init_gemini()
+            self._init_fallback_ollama()
         else:
             self._init_ollama()
 
@@ -581,6 +589,8 @@ class LocalLLM:
     def provider(self) -> str:
         if self.chat is not None:
             return f"langchain-{self.provider_name}"
+        if self.fallback_chat is not None:
+            return "langchain-ollama-fallback"
         return "offline-deterministic"
 
     def _init_ollama(self) -> None:
@@ -591,21 +601,50 @@ class LocalLLM:
             self.status_message = f"Ollama is not reachable at {self.base_url}; using offline fallback."
             return
         self.provider_name = "ollama"
-        self.chat = ChatOllama(model=self.model_name, base_url=self.base_url, temperature=self.temperature)
+        self.chat = self._make_ollama_chat(self.model_name)
+        if self.prefer_ollama_gpu:
+            self.status_message = "Ollama GPU preference is enabled. Ollama will use GPU layers when supported."
+
+    def _make_ollama_chat(self, model_name: str) -> Any:
+        kwargs = {
+            "model": model_name,
+            "base_url": self.base_url,
+            "temperature": self.temperature,
+        }
+        if self.prefer_ollama_gpu:
+            kwargs["num_gpu"] = -1
+        return ChatOllama(**kwargs)
+
+    def _init_fallback_ollama(self) -> None:
+        if not self.fallback_to_ollama or self.fallback_chat is not None:
+            return
+        if not LANGCHAIN_OLLAMA_AVAILABLE or not self.is_ollama_running():
+            return
+        try:
+            self.fallback_chat = self._make_ollama_chat(self.fallback_model_name)
+            fallback_note = f"Ollama fallback ready: {self.fallback_model_name}."
+            self.status_message = f"{self.status_message} {fallback_note}".strip()
+        except Exception:
+            self.fallback_chat = None
 
     def _init_gemini(self) -> None:
         if not LANGCHAIN_GOOGLE_GENAI_AVAILABLE:
             self.status_message = "langchain-google-genai is not installed; using offline fallback."
             return
-        if not GOOGLE_API_KEY:
+        google_api_key = get_google_api_key()
+        if not google_api_key:
             self.status_message = "GOOGLE_API_KEY/GEMINI_API_KEY is not set; using offline fallback."
             return
         self.provider_name = "gemini"
         try:
-            self.chat = ChatGoogleGenerativeAI(model=self.model_name, temperature=self.temperature, api_key=GOOGLE_API_KEY)
+            self.chat = ChatGoogleGenerativeAI(model=self.model_name, temperature=self.temperature, api_key=google_api_key)
         except TypeError:
             try:
-                self.chat = ChatGoogleGenerativeAI(model=self.model_name, temperature=self.temperature, google_api_key=GOOGLE_API_KEY)
+                self.chat = ChatGoogleGenerativeAI(
+                    model=self.model_name,
+                    temperature=self.temperature,
+                    google_api_key=google_api_key,
+                )
             except Exception as exc:
                 self.status_message = f"Gemini initialization failed: {exc}; using offline fallback."
         except Exception as exc:
@@ -628,11 +667,52 @@ class LocalLLM:
 
     def generate(self, system_prompt: str, user_prompt: str) -> GenerationResult:
         if self.chat is not None:
-            message = self.chat.invoke([("system", system_prompt), ("human", user_prompt)])
-            return GenerationResult(str(message.content).strip(), self.model_name, self.provider)
+            try:
+                message = self.chat.invoke([("system", system_prompt), ("human", user_prompt)])
+                return GenerationResult(self._message_text(message), self.model_name, self.provider)
+            except Exception as exc:
+                if self.fallback_chat is not None:
+                    short_error = self._short_error(exc)
+                    self.status_message = f"{self.provider_name} call failed ({short_error}); used Ollama fallback."
+                    message = self.fallback_chat.invoke([("system", system_prompt), ("human", user_prompt)])
+                    return GenerationResult(self._message_text(message), self.fallback_model_name, "langchain-ollama-fallback")
+                self.status_message = f"{self.provider_name} call failed ({self._short_error(exc)}); using offline fallback."
+
+        if self.fallback_chat is not None:
+            message = self.fallback_chat.invoke([("system", system_prompt), ("human", user_prompt)])
+            return GenerationResult(
+                self._message_text(message),
+                self.fallback_model_name,
+                "langchain-ollama-fallback",
+            )
 
         return GenerationResult(
             self.offline.generate(system_prompt, user_prompt),
             "offline-demo",
             self.provider,
         )
+
+    @staticmethod
+    def _short_error(exc: Exception) -> str:
+        message = re.sub(r"\s+", " ", str(exc)).strip()
+        if not message:
+            return exc.__class__.__name__
+        return message[:180]
+
+    @staticmethod
+    def _message_text(message: Any) -> str:
+        content = getattr(message, "content", message)
+        if isinstance(content, str):
+            return content.strip()
+        if isinstance(content, list):
+            parts: list[str] = []
+            for item in content:
+                if isinstance(item, dict):
+                    text = item.get("text")
+                    if text:
+                        parts.append(str(text))
+                elif isinstance(item, str):
+                    parts.append(item)
+            if parts:
+                return "\n".join(parts).strip()
+        return str(content).strip()
