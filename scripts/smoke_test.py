@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -14,11 +13,7 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--offline-demo", action="store_true", help="Force deterministic local fallback.")
-    args = parser.parse_args()
-
-    if args.offline_demo:
-        os.environ["FIN_DOC_LLM_OFFLINE_DEMO"] = "1"
+    parser.parse_args()
 
     from src.agents import FinanceAssistant
     from src.config import OUTPUTS_DIR, SAMPLE_DOCS_DIR, ensure_project_dirs
@@ -38,6 +33,13 @@ def main() -> None:
     assert retrieved, "RAG did not retrieve any sample chunks."
 
     assistant = FinanceAssistant(rag=rag)
+    if getattr(assistant.llm, "chat", None) is None:
+        status = getattr(assistant.llm, "status_message", "No model provider is available.")
+        raise RuntimeError(
+            "Smoke test requires a real model provider in this presentation fork. "
+            f"{status} Start Ollama with `llama3.2:3b` or configure Gemini in `.env`."
+        )
+
     response = assistant.answer(
         "Calculate the current ratio if current assets are 2500 and current liabilities are 1000. What does it say about liquidity?",
         mode="Finance Study Assistant",

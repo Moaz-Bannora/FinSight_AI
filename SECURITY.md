@@ -20,11 +20,10 @@ The following folders are ignored because they may contain private or generated 
 
 - `data/uploads/`
 - `data/chroma_db/`
-- `data/external_financial_docs/`
 - `outputs/`
 - `.venv/`
 
-Qdrant `.snapshot` files are also ignored. Keep large datasets and private filings outside Git unless the team explicitly decides to publish a sanitized dataset.
+Keep large datasets and private filings outside Git unless the team explicitly decides to publish a sanitized dataset.
 
 ## Public Repo Checklist
 
@@ -32,10 +31,10 @@ Before publishing:
 
 ```powershell
 git status --short --ignored
-rg -n "api[_-]?key|secret|token|password|GOOGLE_API_KEY|GEMINI_API_KEY|LANGSMITH_API_KEY|LANGCHAIN_API_KEY" -S . --glob "!**/.venv/**" --glob "!outputs/**" --glob "!data/chroma_db/**" --glob "!data/uploads/**" --glob "!data/external_financial_docs/**"
+rg -n "api[_-]?key|secret|token|password|GOOGLE_API_KEY|GEMINI_API_KEY|LANGSMITH_API_KEY|LANGCHAIN_API_KEY" -S . --glob "!**/.venv/**" --glob "!outputs/**" --glob "!data/chroma_db/**" --glob "!data/uploads/**"
 .\.venv\Scripts\python.exe -m compileall app.py src scripts tests
 .\.venv\Scripts\python.exe tests\test_financial_metadata.py
-.\.venv\Scripts\python.exe -m src.cli --offline-demo evaluate
+.\.venv\Scripts\python.exe tests\test_financial_metadata.py
 ```
 
 Expected secret-scan results should only show placeholders in documentation, `.env.example`, and code that reads environment variables.

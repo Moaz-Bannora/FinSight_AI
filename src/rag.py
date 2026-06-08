@@ -65,7 +65,7 @@ class RetrievedChunk:
 
 
 class LocalHashEmbeddings:
-    """Small deterministic embedding model for offline smoke tests.
+    """Small deterministic embedding model for lightweight retrieval tests.
 
     This is not meant to replace semantic embeddings for the final demo. It keeps
     the project runnable on machines that have not installed Ollama embedding

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -43,10 +42,8 @@ def score_answer(answer: str, expected_terms: list[str]) -> float:
     return hits / len(expected_terms)
 
 
-def run_evaluation(offline_demo: bool = True) -> dict[str, Any]:
+def run_evaluation() -> dict[str, Any]:
     ensure_project_dirs()
-    if offline_demo:
-        os.environ["FIN_DOC_LLM_OFFLINE_DEMO"] = "1"
     rag = FinanceRAG(persist_dir=OUTPUTS_DIR / "evaluation_chroma_db")
     rag.ingest_directory(SAMPLE_DOCS_DIR, reset=True)
     assistant = FinanceAssistant(rag=rag)

@@ -1,4 +1,4 @@
-"""Model profile presets for local and future model usage."""
+"""Model profile presets for the presentation fork."""
 
 from __future__ import annotations
 
@@ -13,84 +13,42 @@ class ModelProfile:
     embedding_model: str
     embedding_provider: str
     temperature: float
-    offline_demo: bool
     description: str
 
 
 MODEL_PROFILES: dict[str, ModelProfile] = {
-    "Local fast - Ollama Llama 3.2 3B": ModelProfile(
-        label="Local fast - Ollama Llama 3.2 3B",
+    "Ollama Llama 3.2 3B (local)": ModelProfile(
+        label="Ollama Llama 3.2 3B (local)",
         llm_provider="ollama",
         chat_model="llama3.2:3b",
         embedding_model="nomic-embed-text",
         embedding_provider="ollama",
         temperature=0.2,
-        offline_demo=False,
-        description="Fast local chat model for demos and short document questions.",
+        description="Main local profile. Runs through Ollama and keeps the project usable without cloud generation.",
     ),
-    "Local balanced - Ollama Qwen 2.5 7B": ModelProfile(
-        label="Local balanced - Ollama Qwen 2.5 7B",
-        llm_provider="ollama",
-        chat_model="qwen2.5:7b",
-        embedding_model="nomic-embed-text",
-        embedding_provider="ollama",
-        temperature=0.15,
-        offline_demo=False,
-        description="Better reasoning profile when your machine can run a 7B local model.",
-    ),
-    "Local long context - Ollama Llama 3.1 8B": ModelProfile(
-        label="Local long context - Ollama Llama 3.1 8B",
-        llm_provider="ollama",
-        chat_model="llama3.1:8b",
-        embedding_model="nomic-embed-text",
-        embedding_provider="ollama",
-        temperature=0.15,
-        offline_demo=False,
-        description="Useful for longer annual reports when hardware allows it.",
-    ),
-    "Cloud reasoning - Gemini 3.5 Flash": ModelProfile(
-        label="Cloud reasoning - Gemini 3.5 Flash",
-        llm_provider="gemini",
-        chat_model="gemini-3.5-flash",
-        embedding_model="nomic-embed-text",
-        embedding_provider="ollama",
-        temperature=0.2,
-        offline_demo=False,
-        description="Optional cloud LLM profile. Requires `langchain-google-genai` and `GOOGLE_API_KEY`.",
-    ),
-    "Cloud efficient - Gemini 3.1 Flash-Lite": ModelProfile(
-        label="Cloud efficient - Gemini 3.1 Flash-Lite",
+    "Gemini 3.1 Flash-Lite (cloud)": ModelProfile(
+        label="Gemini 3.1 Flash-Lite (cloud)",
         llm_provider="gemini",
         chat_model="gemini-3.1-flash-lite",
         embedding_model="nomic-embed-text",
         embedding_provider="ollama",
         temperature=0.2,
-        offline_demo=False,
-        description="Quota-friendlier Gemini profile for free-tier testing and short finance questions.",
+        description="Cloud profile for faster Gemini answers when a private API key is configured.",
     ),
-    "Hybrid quality check - Ollama draft + Gemini": ModelProfile(
-        label="Hybrid quality check - Ollama draft + Gemini",
+    "Hybrid: Ollama 3B draft + Gemini check": ModelProfile(
+        label="Hybrid: Ollama 3B draft + Gemini check",
         llm_provider="hybrid_local_gemini_checker",
         chat_model="llama3.2:3b",
         embedding_model="nomic-embed-text",
         embedding_provider="ollama",
         temperature=0.2,
-        offline_demo=False,
-        description="Local Ollama drafts the answer, then Gemini Flash-Lite checks it when available.",
+        description="Ollama drafts the answer locally, then Gemini Flash-Lite reviews it when configured.",
     ),
 }
 
 
-PROFILE_ALIASES: dict[str, str] = {
-    "Ollama fast": "Local fast - Ollama Llama 3.2 3B",
-    "Ollama finance balanced": "Local balanced - Ollama Qwen 2.5 7B",
-    "Ollama long-context": "Local long context - Ollama Llama 3.1 8B",
-    "Gemini API": "Cloud reasoning - Gemini 3.5 Flash",
-    "Gemini Flash-Lite": "Cloud efficient - Gemini 3.1 Flash-Lite",
-    "Hybrid local + Gemini checker": "Hybrid quality check - Ollama draft + Gemini",
-}
+DEFAULT_PROFILE_LABEL = "Ollama Llama 3.2 3B (local)"
 
 
 def get_profile(label: str) -> ModelProfile:
-    canonical_label = PROFILE_ALIASES.get(label, label)
-    return MODEL_PROFILES.get(canonical_label, MODEL_PROFILES["Local fast - Ollama Llama 3.2 3B"])
+    return MODEL_PROFILES.get(label, MODEL_PROFILES[DEFAULT_PROFILE_LABEL])

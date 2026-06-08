@@ -23,8 +23,6 @@ env/
 outputs/
 data/chroma_db/
 data/uploads/
-data/external_financial_docs/
-*.snapshot
 
 # Optional local model/fine-tune artifacts
 outputs/finance_lora_adapter/
@@ -34,6 +32,7 @@ outputs/finance_lora_adapter/
 
 # Streamlit/local logs
 *.log
+PRESENTATION_FORK_PROJECT_EXPLANATION_LOCAL.md
 
 # OS/editor
 .DS_Store

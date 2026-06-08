@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 
 from .agents import FinanceAssistant, response_to_markdown
 from .config import SAMPLE_DOCS_DIR, ensure_project_dirs
@@ -14,7 +13,6 @@ from .rag import FinanceRAG
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Finance Docs Insights CLI")
-    parser.add_argument("--offline-demo", action="store_true", help="Use deterministic local fallback instead of Ollama.")
     subparsers = parser.add_subparsers(dest="command", required=True)
 
     ingest = subparsers.add_parser("ingest-samples", help="Ingest sample finance documents.")
@@ -34,8 +32,6 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
-    if args.offline_demo:
-        os.environ["FIN_DOC_LLM_OFFLINE_DEMO"] = "1"
 
     ensure_project_dirs()
 
@@ -60,7 +56,7 @@ def main() -> None:
         return
 
     if args.command == "evaluate":
-        summary = run_evaluation(offline_demo=args.offline_demo)
+        summary = run_evaluation()
         print(json.dumps(summary, indent=2))
 
 

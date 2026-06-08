@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sys
 from pathlib import Path
 
@@ -33,16 +32,12 @@ def default_verification_file() -> Path:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--file", type=Path, default=None, help="Uploaded file to verify.")
-    parser.add_argument("--offline-demo", action="store_true", help="Force deterministic local fallback.")
     parser.add_argument(
         "--question",
         default=None,
         help="Question to ask about the uploaded file.",
     )
     args = parser.parse_args()
-
-    if args.offline_demo:
-        os.environ["FIN_DOC_LLM_OFFLINE_DEMO"] = "1"
 
     from src.agents import FinanceAssistant
     from src.config import OUTPUTS_DIR, ensure_project_dirs

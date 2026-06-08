@@ -25,7 +25,6 @@ load_project_env()
 
 DATA_DIR = PROJECT_ROOT / "data"
 SAMPLE_DOCS_DIR = DATA_DIR / "sample_docs"
-EXTERNAL_DOCS_DIR = DATA_DIR / "external_financial_docs"
 UPLOADS_DIR = DATA_DIR / "uploads"
 VECTORSTORE_DIR = DATA_DIR / "chroma_db"
 EVALUATION_DIR = DATA_DIR / "evaluation"
@@ -47,14 +46,8 @@ SUPPORTED_EXTENSIONS = {".pdf", ".docx", ".txt", ".md", ".csv"} | IMAGE_EXTENSIO
 def ensure_project_dirs() -> None:
     """Create runtime directories used by the app and scripts."""
 
-    for path in [DATA_DIR, SAMPLE_DOCS_DIR, EXTERNAL_DOCS_DIR, UPLOADS_DIR, VECTORSTORE_DIR, EVALUATION_DIR, OUTPUTS_DIR]:
+    for path in [DATA_DIR, SAMPLE_DOCS_DIR, UPLOADS_DIR, VECTORSTORE_DIR, EVALUATION_DIR, OUTPUTS_DIR]:
         path.mkdir(parents=True, exist_ok=True)
-
-
-def offline_demo_enabled() -> bool:
-    """Return true when the deterministic local demo mode is requested."""
-
-    return os.getenv("FIN_DOC_LLM_OFFLINE_DEMO", "0").strip().lower() in {"1", "true", "yes", "on"}
 
 
 def get_google_api_key() -> str:

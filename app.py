@@ -12,17 +12,14 @@ import streamlit as st
 
 from src.agents import FinanceAssistant
 from src.config import (
-    DEFAULT_CHAT_MODEL,
     DEFAULT_EMBED_MODEL,
-    EXTERNAL_DOCS_DIR,
     SAMPLE_DOCS_DIR,
-    SUPPORTED_EXTENSIONS,
     UPLOADS_DIR,
     ensure_project_dirs,
     gemini_env_status,
 )
 from src.llm import LANGCHAIN_GOOGLE_GENAI_AVAILABLE, LocalLLM
-from src.model_profiles import MODEL_PROFILES, get_profile
+from src.model_profiles import DEFAULT_PROFILE_LABEL, MODEL_PROFILES, get_profile
 from src.rag import FinanceRAG
 
 
@@ -33,7 +30,6 @@ APP_NAME = "Finance Docs Insights"
 MAX_UPLOAD_MB = 512
 UPLOAD_TYPES = ["pdf", "docx", "txt", "md", "csv", "png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
 VISIBLE_PROFILE_LABELS = list(MODEL_PROFILES)
-DEFAULT_PROFILE_LABEL = "Local fast - Ollama Llama 3.2 3B"
 
 
 def safe_filename(filename: str) -> str:
@@ -60,28 +56,9 @@ def save_uploaded_files(uploaded_files) -> list[Path]:
     return saved_paths
 
 
-def list_supported_files(directory: Path) -> list[Path]:
-    """Return supported files in a stable order for repeatable batch indexing."""
-
-    return sorted(
-        [path for path in directory.rglob("*") if path.is_file() and path.suffix.lower() in SUPPORTED_EXTENSIONS],
-        key=lambda path: str(path).lower(),
-    )
-
-
-def filter_files(paths: list[Path], query: str) -> list[Path]:
-    """Filter paths by simple filename/path tokens entered in the sidebar."""
-
-    tokens = [token.strip().lower() for token in query.split() if token.strip()]
-    if not tokens:
-        return paths
-    return [path for path in paths if all(token in str(path).lower() for token in tokens)]
-
-
 def get_assistant(
     model_name: str,
     llm_provider: str,
-    offline_demo: bool,
     embedding_provider: str,
     embedding_model: str,
     temperature: float,
@@ -97,16 +74,13 @@ def get_assistant(
         llm = LocalLLM(
             model_name=model_name,
             provider_name="ollama",
-            offline_demo=offline_demo,
             temperature=temperature,
             prefer_ollama_gpu=prefer_ollama_gpu,
         )
         checker_llm = LocalLLM(
             model_name="gemini-3.1-flash-lite",
             provider_name="gemini",
-            offline_demo=offline_demo,
             temperature=temperature,
-            fallback_model_name=model_name,
             prefer_ollama_gpu=prefer_ollama_gpu,
         )
         return FinanceAssistant(rag=rag, llm=llm, checker_llm=checker_llm)
@@ -114,9 +88,7 @@ def get_assistant(
     llm = LocalLLM(
         model_name=model_name,
         provider_name=llm_provider,
-        offline_demo=offline_demo,
         temperature=temperature,
-        fallback_model_name=DEFAULT_CHAT_MODEL,
         prefer_ollama_gpu=prefer_ollama_gpu,
     )
     return FinanceAssistant(rag=rag, llm=llm)
@@ -280,7 +252,6 @@ if "assistant" not in st.session_state:
     st.session_state.assistant = get_assistant(
         default_profile.chat_model,
         llm_provider=default_profile.llm_provider,
-        offline_demo=False,
         embedding_provider=default_profile.embedding_provider,
         embedding_model=default_profile.embedding_model,
         temperature=default_profile.temperature,
@@ -288,12 +259,6 @@ if "assistant" not in st.session_state:
 
 if "ingested_files" not in st.session_state:
     st.session_state.ingested_files = []
-
-if "external_docs_cursor" not in st.session_state:
-    st.session_state.external_docs_cursor = 0
-
-if "external_docs_last_filter" not in st.session_state:
-    st.session_state.external_docs_last_filter = ""
 
 if "image_analysis_enabled" not in st.session_state:
     st.session_state.image_analysis_enabled = False
@@ -350,62 +315,6 @@ with st.sidebar:
                 count = st.session_state.assistant.rag.ingest_directory(SAMPLE_DOCS_DIR, reset=True)
             st.session_state.ingested_files = ["sample_docs"]
             st.success(f"Loaded {count} chunks.")
-
-        exported_docs = list_supported_files(EXTERNAL_DOCS_DIR)
-        if exported_docs:
-            st.markdown("**Exported financial docs**")
-            external_filter = st.text_input(
-                "Filter exported docs",
-                value=st.session_state.external_docs_last_filter,
-                placeholder="amazon 2024 10-q, apple, risk, table...",
-                help="Optional. Matches words in exported filenames and folders before indexing.",
-            )
-            if external_filter != st.session_state.external_docs_last_filter:
-                st.session_state.external_docs_last_filter = external_filter
-                st.session_state.external_docs_cursor = 0
-
-            filtered_docs = filter_files(exported_docs, external_filter)
-            batch_size = st.selectbox(
-                "External docs batch size",
-                [25, 50, 100, 250, 500],
-                index=1,
-                help="Smaller batches are easier to cancel and safer for laptops. More files take longer to embed.",
-            )
-            reset_before_external = st.checkbox(
-                "Reset vector store before first external batch",
-                value=True,
-                help="Keep enabled when you want the exported financial docs to replace previously indexed docs.",
-            )
-
-            if st.session_state.external_docs_cursor > len(filtered_docs):
-                st.session_state.external_docs_cursor = 0
-
-            start = st.session_state.external_docs_cursor
-            end = min(start + batch_size, len(filtered_docs))
-            next_batch = filtered_docs[start:end]
-            st.caption(
-                f"{len(filtered_docs)} matching files out of {len(exported_docs)} exported files. "
-                f"Next batch: {start + 1 if next_batch else 0}-{end}."
-            )
-
-            col_index, col_reset = st.columns(2)
-            with col_index:
-                if st.button("Index next batch", use_container_width=True, disabled=not next_batch):
-                    if start == 0 and reset_before_external:
-                        st.session_state.assistant.rag.reset()
-                    with st.spinner(f"Indexing {len(next_batch)} exported file(s)..."):
-                        count = st.session_state.assistant.rag.ingest_files(next_batch)
-                    st.session_state.external_docs_cursor = end
-                    st.session_state.ingested_files = [
-                        f"external_financial_docs batch {start + 1}-{end} of {len(filtered_docs)}"
-                    ]
-                    st.success(f"Indexed {count} chunks from {len(next_batch)} file(s).")
-            with col_reset:
-                if st.button("Reset external progress", use_container_width=True):
-                    st.session_state.external_docs_cursor = 0
-                    st.success("External indexing progress reset.")
-        else:
-            st.caption("No exported financial docs found yet.")
 
         uploaded_files = st.file_uploader(
             "Upload documents or images",
@@ -464,7 +373,7 @@ with st.sidebar:
         profile_key = re.sub(r"[^A-Za-z0-9_]+", "_", profile_label.lower())
         model_name = st.text_input(
             "Chat model",
-            value=profile.chat_model if not profile.offline_demo else DEFAULT_CHAT_MODEL,
+            value=profile.chat_model,
             key=f"chat_model_{profile_key}",
         )
         temperature = st.slider(
@@ -492,7 +401,6 @@ with st.sidebar:
         )
 
     with st.expander("4. Runtime options and status", expanded=False):
-        offline_demo = st.toggle("Offline demo mode", value=False, key=f"offline_demo_{profile_key}")
         prefer_ollama_gpu = st.toggle(
             "Prefer Ollama GPU acceleration",
             value=False,
@@ -516,7 +424,6 @@ with st.sidebar:
             st.session_state.assistant = get_assistant(
                 model_name=model_name,
                 llm_provider=profile.llm_provider,
-                offline_demo=offline_demo,
                 embedding_provider=embedding_provider,
                 embedding_model=embedding_model,
                 temperature=temperature,
