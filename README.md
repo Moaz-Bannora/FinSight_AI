@@ -24,6 +24,13 @@ Finance Docs Insights is a finance document intelligence workspace for analysts,
 
 The project is in active development. The current goal is to become a practical finance copilot for document review, concept explanation, valuation study, market context, and analyst-style workflows.
 
+
+
+<img width="1906" height="930" alt="image" src="https://github.com/user-attachments/assets/64499cab-2dc4-4ae0-8fef-3807e7ce7d0b" />
+
+
+<img width="1906" height="873" alt="image" src="https://github.com/user-attachments/assets/0bc37846-304a-439e-bdf6-3563766ef019" />
+
 ## Core Principles
 
 - **Evidence first:** document answers should come from retrieved sources, not model memory.
